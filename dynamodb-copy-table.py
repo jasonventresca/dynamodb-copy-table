@@ -1,12 +1,15 @@
 #!/usr/bin/python2
+
+from time import sleep
+import sys
+import os
+import traceback
+
 from boto.dynamodb2.exceptions import ValidationException
 from boto.dynamodb2.fields import HashKey, RangeKey
 from boto.dynamodb2.layer1 import DynamoDBConnection
 from boto.dynamodb2.table import Table
 from boto.exception import JSONResponseError
-from time import sleep
-import sys
-import os
 
 if len(sys.argv) != 3:
     print 'Usage: %s <source_table_name>' \
@@ -15,7 +18,7 @@ if len(sys.argv) != 3:
 
 src_table = sys.argv[1]
 dst_table = sys.argv[2]
-region = os.getenv('AWS_DEFAULT_REGION', 'us-west-2')
+region = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
 
 # host = 'dynamodb.%s.amazonaws.com' % region
 # ddbc = DynamoDBConnection(is_secure=False, region=region, host=host)
@@ -54,9 +57,12 @@ try:
                      )
 
     table_struct = new_logs.describe()
+    print "DEBUG: table_struct = {}".format(table_struct)
     print 'Table %s already exists' % dst_table
     sys.exit(0)
-except JSONResponseError:
+except JSONResponseError as e:
+    print 'DEBUG: caught exception, this was the full traceback'
+    traceback.print_stack()
     schema = [HashKey(hash_key)]
     if range_key != '':
         schema.append(RangeKey(range_key))
@@ -69,12 +75,21 @@ except JSONResponseError:
     while ddbc.describe_table(dst_table)['Table']['TableStatus'] != 'ACTIVE':
         sleep(3)
 
+    print '*** New table now active!'
+
 if 'DISABLE_DATACOPY' in os.environ:
     print 'Copying of data from source table is disabled. Exiting...'
     sys.exit(0)
 
 # 3. Add the items
+print '*** Copying data from source table to dest table...'
+progress_every = 1000
+progress = 0
 for item in logs.scan():
+    progress += 1
+    if progress and (progress % progress_every == 0):
+        print '   -> {} items added'.format(progress)
+
     new_item = {}
     new_item[hash_key] = item[hash_key]
     if range_key != '':
